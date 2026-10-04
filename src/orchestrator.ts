@@ -869,6 +869,79 @@ function isMutatingCopilotTool(
     return true;
 }
 
+/** Expected argument keys for a tool (for corrective hints). */
+function expectedKeys(def: LocalToolDef): string[] {
+    const params = def.function.parameters as
+        | { required?: unknown; properties?: unknown }
+        | undefined;
+    if (Array.isArray(params?.required)) {
+        const req = params.required.filter(
+            (k): k is string => typeof k === 'string'
+        );
+        if (req.length > 0) {
+            return req;
+        }
+    }
+    const props = params?.properties;
+    if (props && typeof props === 'object') {
+        return Object.keys(props as Record<string, unknown>).slice(0, 8);
+    }
+    return [];
+}
+
+/**
+ * Free corrective intervention after the same tool is rejected twice in a
+ * row: name the exact correct call instead of spending lead tokens or steps.
+ */
+function correctiveHint(
+    callName: string,
+    def: LocalToolDef | undefined
+): string {
+    if (callName === 'local_edit_file') {
+        return (
+            `STOP calling local_edit_file — same mistake twice. ` +
+            `local_edit_file only changes text INSIDE an EXISTING file and needs ` +
+            `{"path", "oldText", "newText"} (you passed dirPath-style keys — those belong to a different tool). ` +
+            `If the task needs a NEW file, call local_write_file with ` +
+            `{"path": "<relative file>", "content": "<full content>"} RIGHT NOW, no more deliberation. ` +
+            `If editing, first local_read_file the file, then use its exact text as oldText.`
+        );
+    }
+    if (callName === 'local_write_file') {
+        return (
+            `STOP — local_write_file keeps failing on arguments. ` +
+            `It needs exactly {"path": "<relative file>", "content": "<full content>"}. ` +
+            `Call it correctly NOW, no more deliberation.`
+        );
+    }
+    const keys = def ? expectedKeys(def) : [];
+    return (
+        `STOP — "${callName}" was rejected twice in a row. ` +
+        (keys.length > 0 ? `It needs keys: ${keys.join(', ')}. ` : ``) +
+        `Check the tool list and call correctly NOW, or finish with a text summary.`
+    );
+}
+/** Required arg keys missing from a call (cheap local check — no lead call spent). */
+function missingRequiredArgs(
+    def: LocalToolDef,
+    args: unknown
+): string[] {
+    const params = def.function.parameters as
+        | { required?: unknown }
+        | undefined;
+    const required = Array.isArray(params?.required)
+        ? params.required.filter((k): k is string => typeof k === 'string')
+        : [];
+    if (required.length === 0) {
+        return [];
+    }
+    const rec = (args ?? {}) as Record<string, unknown>;
+    return required.filter(k => {
+        const v = rec[k];
+        return v === undefined || v === null || v === '';
+    });
+}
+
 function describeCopilotCall(call: LocalToolCall): string {
     let args = '';
     try {
@@ -1271,6 +1344,11 @@ async function runQwenAgent(
     let thinkingAll = '';
     let lastContent = '';
     let toolsRan = 0;
+    // Consecutive same-tool rejections (unknown tool / bad args). At 2 in a
+    // row the bridge intervenes with a corrective hint (free) instead of
+    // letting Qwen burn all 8 steps on the same mistake (seen live: 8x
+    // local_edit_file with dirPath keys, file never created).
+    let rejectStreak: { tool: string; count: number } = { tool: '', count: 0 };
     // First network call also loads the model (zero tokens for minutes on
     // slow PCs) — one-time idle bonus so load time never kills step 1.
     let firstStepLoadBonus = true;
@@ -1278,6 +1356,17 @@ async function runQwenAgent(
     // Lead rescues confused Qwen (max 2 per agent run — each is a Copilot call).
     let guidanceUsed = 0;
     const MAX_LEAD_GUIDANCE = 2;
+
+    // Track consecutive same-tool rejections. Returns true exactly when the
+    // count hits 2 in a row = time for a free corrective intervention.
+    const noteRejection = (toolName: string): boolean => {
+        if (rejectStreak.tool === toolName) {
+            rejectStreak.count++;
+        } else {
+            rejectStreak = { tool: toolName, count: 1 };
+        }
+        return rejectStreak.count === 2;
+    };
 
     for (let step = 1; step <= maxSteps; step++) {
 
@@ -1521,6 +1610,41 @@ async function runQwenAgent(
                         allTools.map(t => t.function.name).join(', ')
                 });
                 stream.markdown(`> Qwen: unknown tool "${call.name}" — rejected\n\n`);
+                if (noteRejection(call.name)) {
+                    const fix = correctiveHint(call.name, undefined);
+                    history.push({ role: 'user', content: fix });
+                    stream.markdown(`> Bridge corrective hint sent.\n\n`);
+                }
+                continue;
+            }
+
+            // Cheap shape check BEFORE any approval round-trip: malformed
+            // calls (e.g. file content stuffed into local_run) are rejected
+            // with a hint, spending zero lead tokens and zero dialogs.
+            const missing = missingRequiredArgs(def, call.args);
+
+            if (missing.length > 0) {
+                const rec = (call.args ?? {}) as Record<string, unknown>;
+                const keys = Object.keys(rec);
+                let hint =
+                    `Rejected without approval: missing required argument(s) ` +
+                    `${missing.join(', ')} for "${call.name}" ` +
+                    `(got keys: ${keys.join(', ') || 'none'}).`;
+                if (
+                    call.name === 'local_run' &&
+                    ('path' in rec || 'content' in rec)
+                ) {
+                    hint +=
+                        ` You passed file-writing arguments — did you mean ` +
+                        `local_write_file with {"path", "content"}?`;
+                }
+                history.push({ role: 'tool', content: hint });
+                stream.markdown(`> Qwen: ${desc} — rejected (${hint})\n\n`);
+                if (noteRejection(call.name)) {
+                    const fix = correctiveHint(call.name, def);
+                    history.push({ role: 'user', content: fix });
+                    stream.markdown(`> Bridge corrective hint sent.\n\n`);
+                }
                 continue;
             }
 
@@ -1530,6 +1654,7 @@ async function runQwenAgent(
                 if (call.name.startsWith('local_')) {
                     const out = await runLocalTool(call, root);
                     toolsRan++;
+                    rejectStreak = { tool: '', count: 0 };
                     return out.slice(0, 8000);
                 }
                 const res = await vscode.lm.invokeTool(
@@ -1541,6 +1666,7 @@ async function runQwenAgent(
                     token
                 );
                 toolsRan++;
+                rejectStreak = { tool: '', count: 0 };
                 return copilotToolResultToString(res).slice(0, 8000);
             };
 

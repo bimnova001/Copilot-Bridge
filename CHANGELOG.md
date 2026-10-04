@@ -6,6 +6,14 @@ Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how 
 
 ## [Unreleased]
 
+## [0.7.4] - 2026-10-04
+
+- Corrective intervention: same tool rejected twice in a row triggers a free precise hint (e.g. stop `local_edit_file`, call `local_write_file` with exact keys) instead of burning all 8 steps on one mistake
+
+## [0.7.3] - 2026-10-04
+
+- Pre-validate tool args locally (required keys): malformed calls rejected with a corrective hint (e.g. file args in `local_run` → "did you mean `local_write_file`?") spending zero lead tokens and zero dialogs
+
 ## [0.7.2] - 2026-10-04
 
 - Agentic step prose now visible (quoted, 600 chars): confusion no longer hides behind tool lines

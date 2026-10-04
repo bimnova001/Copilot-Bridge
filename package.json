@@ -2,7 +2,7 @@
   "name": "ai-copilot-bridge",
   "displayName": "AI Copilot Bridge",
   "description": "Copilot (GPT/Claude auto) + Local Ollama AI collaboration",
-  "version": "0.7.2",
+  "version": "0.7.4",
   "engines": {
     "vscode": "^1.139.0"
   },
