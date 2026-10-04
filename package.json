@@ -1,0 +1,145 @@
+{
+  "name": "ai-copilot-bridge",
+  "displayName": "AI Copilot Bridge",
+  "description": "Copilot (GPT/Claude auto) + Local Ollama AI collaboration",
+  "version": "0.7.2",
+  "engines": {
+    "vscode": "^1.139.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [
+    "onChatParticipant:ai-copilot-bridge.multi"
+  ],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "configuration": {
+      "title": "AI Copilot Bridge",
+      "properties": {
+        "aiCopilotBridge.ollama.url": {
+          "type": "string",
+          "default": "http://localhost:11434",
+          "description": "Ollama server URL."
+        },
+        "aiCopilotBridge.ollama.model": {
+          "type": "string",
+          "default": "qwen3:4b",
+          "description": "Local Ollama model name. Run `ollama pull <model>` first."
+        },
+        "aiCopilotBridge.ollama.timeout": {
+          "type": "number",
+          "default": 180000,
+          "description": "Ollama request timeout in milliseconds. Increase for slow PCs."
+        },
+        "aiCopilotBridge.ollama.askBeforeSkip": {
+          "type": "boolean",
+          "default": true,
+          "description": "Ask before skipping Qwen when local AI times out (for slow PCs)."
+        },
+        "aiCopilotBridge.ollama.showThinking": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show the local model's thinking trace (qwen3 <think>) in chat. Full trace is always in the Output log."
+        },
+        "aiCopilotBridge.ollama.thinkingCollapsed": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show Qwen thinking as a collapsed '+ Thinking' line with a button instead of an inline dump."
+        },
+        "aiCopilotBridge.qwenToolsEnabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Let Qwen use Copilot tools itself (agentic mode). Reads auto-run; writes/commands need Lead approval (and you, when Lead says so)."
+        },
+        "aiCopilotBridge.qwenMaxToolSteps": {
+          "type": "number",
+          "default": 8,
+          "minimum": 1,
+          "maximum": 20,
+          "description": "Max tool steps per Qwen agentic task."
+        },
+        "aiCopilotBridge.qwenMaxTools": {
+          "type": "number",
+          "default": 8,
+          "minimum": 4,
+          "maximum": 40,
+          "description": "Max Copilot tools exposed to Qwen per task (small local models drown in too many)."
+        },
+        "aiCopilotBridge.qwenMaxTokensPerStep": {
+          "type": "number",
+          "default": 2000,
+          "minimum": 0,
+          "maximum": 8000,
+          "description": "Max output tokens per Qwen agentic step (bounds rambling on slow PCs; 0 = uncapped)."
+        },
+        "aiCopilotBridge.qwenAgentThink": {
+          "type": "boolean",
+          "default": false,
+          "description": "Let Qwen think during agentic tool steps. Off = act immediately (recommended, Lead reviews everything); on = slower with visible reasoning."
+        },
+        "aiCopilotBridge.enableTools": {
+          "type": "boolean",
+          "default": true,
+          "description": "Allow the lead model to use native VS Code tools. Turn off if tool routing keeps failing."
+        },
+        "aiCopilotBridge.maxRounds": {
+          "type": "number",
+          "default": 5,
+          "minimum": 1,
+          "maximum": 15,
+          "description": "Max lead-Qwen collaboration rounds per request."
+        }
+      }
+    },
+    "chatParticipants": [
+      {
+        "id": "ai-copilot-bridge.multi",
+        "name": "multi",
+        "fullName": "AI Multi Agent",
+        "description": "Lead AI (GPT/Claude auto) + Local AI collaboration",
+        "isSticky": true
+      }
+    ],
+    "commands": [
+      {
+        "command": "ai-copilot-bridge.showLastThinking",
+        "title": "Show Last Qwen Thinking",
+        "category": "AI Copilot Bridge"
+      }
+    ]
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run package",
+    "compile": "npm run check-types && npm run lint && node esbuild.js",
+    "watch": "npm-run-all -p watch:*",
+    "watch:esbuild": "node esbuild.js --watch",
+    "watch:tsc": "tsc --noEmit --watch --project tsconfig.json",
+    "package": "npm run check-types && npm run lint && node esbuild.js --production",
+    "compile-tests": "tsc -p . --outDir out",
+    "watch-tests": "tsc -p . -w --outDir out",
+    "pretest": "npm run compile-tests && npm run compile && npm run lint",
+    "check-types": "tsc --noEmit",
+    "lint": "eslint src",
+    "test": "vscode-test"
+  },
+  "devDependencies": {
+    "@types/mocha": "^10.0.10",
+    "@types/node": "24.x",
+    "@types/vscode": "^1.138.0",
+    "@vscode/test-cli": "^0.0.15",
+    "@vscode/test-electron": "^3.0.0",
+    "esbuild": "^0.28.1",
+    "eslint": "^10.5.0",
+    "npm-run-all": "^4.1.5",
+    "typescript": "^6.0.3",
+    "typescript-eslint": "^8.61.1"
+  },
+  "overrides": {
+    "diff": "^8.0.4",
+    "serialize-javascript": "^7.0.6"
+  },
+  "dependencies": {
+    "@vscode/chat-extension-utils": "^0.0.0-alpha.5"
+  }
+}
