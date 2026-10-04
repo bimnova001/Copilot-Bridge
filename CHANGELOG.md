@@ -6,6 +6,10 @@ Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how 
 
 ## [Unreleased]
 
+## [0.7.5] - 2026-10-04
+
+- Bridge strips markdown fences / bare language tags from written code (seen live: `python` prefix leaked into ui.py); markdown docs untouched; result notes when cleaned + prompt orders raw content
+
 ## [0.7.4] - 2026-10-04
 
 - Corrective intervention: same tool rejected twice in a row triggers a free precise hint (e.g. stop `local_edit_file`, call `local_write_file` with exact keys) instead of burning all 8 steps on one mistake

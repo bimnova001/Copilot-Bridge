@@ -1302,6 +1302,8 @@ async function runQwenAgent(
         ` Be concise throughout: short reasoning, act with tools fast, no long essays.` +
         ` REASONING IS DISABLED for speed — do not deliberate, do not weigh options, do not re-derive givens. ` +
         `Output at most one short plan sentence, then the tool block(s) IMMEDIATELY. ` +
+        `Write clean, well-formatted code. File content must be RAW code — NEVER wrap it in ` +
+        `markdown fences or language tags (no ` + '```' + `, no leading "python" line).` +
         `If you are unsure, output your one-sentence confusion and STOP (no tool block) — the lead AI will guide you. ` +
         `The lead reviews everything you do, so act — perfection is not required.` +
         `\n\nGUARANTEED BASIC TOOLS (always work — prefer these for file operations):\n` +

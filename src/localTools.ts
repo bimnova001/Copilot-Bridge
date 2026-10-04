@@ -39,6 +39,69 @@ const SKIP_DIRS = new Set([
     'node_modules', '.git', 'dist', 'out', 'build', '.vscode', '__pycache__'
 ]);
 
+const CODE_EXT = new Set([
+    'py', 'js', 'ts', 'tsx', 'jsx', 'java', 'cs', 'go', 'rs',
+    'c', 'cpp', 'h', 'hpp', 'rb', 'php', 'swift', 'kt', 'sql',
+    'html', 'css', 'scss', 'sh', 'ps1', 'bat'
+]);
+
+const FENCE_OK_EXT = new Set([
+    ...CODE_EXT,
+    'json', 'yaml', 'yml', 'toml', 'xml'
+]);
+
+const LANG_TAGS = new Set([
+    'python', 'javascript', 'js', 'typescript', 'ts', 'tsx', 'jsx',
+    'json', 'java', 'csharp', 'c#', 'c++', 'cpp', 'c', 'go', 'rust',
+    'ruby', 'php', 'swift', 'kotlin', 'sql', 'html', 'css', 'xml',
+    'yaml', 'bash', 'sh', 'shell', 'powershell', 'ps1', 'plaintext', 'text'
+]);
+
+/**
+ * Models love to wrap file content in ``` fences or a bare language tag
+ * ("python\n# ui.py..."). That garbage must never reach disk. Markdown/text
+ * docs are left untouched (their fences are real content).
+ */
+export function cleanFileContent(
+    content: string,
+    filename: string
+): { text: string; cleaned: boolean } {
+    const ext = filename.split('.').pop()?.toLowerCase() ?? '';
+    if (!FENCE_OK_EXT.has(ext)) {
+        return { text: content, cleaned: false };
+    }
+
+    let text = content;
+    let cleaned = false;
+
+    const full = text.match(/^```[\w+#-]*\r?\n([\s\S]*?)\r?\n```\s*$/);
+    if (full) {
+        text = full[1];
+        cleaned = true;
+    } else {
+        const lines = text.split('\n');
+        if (/^```[\w+#-]*\s*$/.test(lines[0] ?? '')) {
+            lines.shift();
+            cleaned = true;
+        }
+        if (lines.length > 0 && /^```\s*$/.test(lines[lines.length - 1] ?? '')) {
+            lines.pop();
+            cleaned = true;
+        }
+        text = lines.join('\n');
+    }
+
+    if (CODE_EXT.has(ext)) {
+        const parts = text.split('\n');
+        if (LANG_TAGS.has((parts[0] ?? '').trim().toLowerCase())) {
+            text = parts.slice(1).join('\n').replace(/^\n+/, '');
+            cleaned = true;
+        }
+    }
+
+    return { text, cleaned };
+}
+
 const TEXT_EXT = /\.(ts|js|tsx|jsx|json|md|txt|py|java|cs|go|rs|c|cpp|h|hpp|yaml|yml|toml|xml|html|css|scss|sh|bat|ps1|java|kt|swift|rb|php|sql)$/i;
 
 export function getLocalToolDefs(): LocalToolDef[] {
@@ -308,8 +371,10 @@ export async function runLocalTool(
             }
             const abs = sandboxPath(workspaceRoot, p);
             await fs.promises.mkdir(path.dirname(abs), { recursive: true });
-            await fs.promises.writeFile(abs, content, 'utf8');
-            return `Wrote ${content.length} chars to ${abs}`;
+            const cleaned = cleanFileContent(content, p);
+            await fs.promises.writeFile(abs, cleaned.text, 'utf8');
+            return `Wrote ${cleaned.text.length} chars to ${abs}` +
+                (cleaned.cleaned ? ' (stripped markdown fence/language tag)' : '');
         }
         case 'local_edit_file': {
             const p = strArg(call.args, 'path');
@@ -322,12 +387,15 @@ export async function runLocalTool(
             if (!current.includes(oldText)) {
                 throw new Error('oldText not found in file — no changes made.');
             }
+            const newRaw = strArg(call.args, 'newText');
+            const cleaned = cleanFileContent(newRaw, p);
             await fs.promises.writeFile(
                 abs,
-                current.replace(oldText, strArg(call.args, 'newText')),
+                current.replace(oldText, cleaned.text),
                 'utf8'
             );
-            return `Edited ${abs}.`;
+            return `Edited ${abs}.` +
+                (cleaned.cleaned ? ' (stripped markdown fence/language tag)' : '');
         }
         case 'local_run': {
             const cmd = strArg(call.args, 'command');
